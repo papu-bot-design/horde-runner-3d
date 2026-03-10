@@ -3,131 +3,253 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Moto Runner 2D</title>
+  <title>Moto Runner Frenetic</title>
   <style>
-    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#111;}
-    #hud{position:fixed;top:10px;left:10px;color:#fff;font:14px system-ui;z-index:2}
+    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0b0d12;}
+    #hud{position:fixed;top:10px;left:10px;color:#fff;font:bold 14px system-ui;z-index:2;text-shadow:1px 1px #000;}
     #hud b{color:#7ef}
-    #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);color:#fff;font:16px system-ui;z-index:3;text-align:center}
-    .btn{background:#1f5;color:#000;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;user-select:none}
-    canvas{width:100%;height:100%;display:block}
+    #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.7);color:#fff;font:16px system-ui;z-index:10;text-align:center}
+    .btn{background:#1f5;color:#000;padding:12px 20px;border-radius:12px;font-weight:900;cursor:pointer;user-select:none;text-transform:uppercase;}
+    #pauseBtn{position:fixed;right:10px;top:10px;z-index:5;background:#fff;color:#000;border:0;padding:8px 12px;border-radius:8px;font-weight:900;cursor:pointer;display:none;}
+    canvas{width:100%; height:100%; display:block; position:fixed; inset:0; z-index:1;}
   </style>
 </head>
 <body>
-  <div id="hud">Distancia: <b id="dist">0</b> | Velocidad: <b id="spd">1</b> | Record: <b id="best">0</b> <span style="opacity:.4;font-size:10px">v2.0.0</span></div>
-  <div id="overlay"><div><div><b>Moto Runner 2D</b></div><div>Espacio / Tap para saltar · Deslizá para esquivar</div><div class="btn" id="startBtn">Iniciar</div></div></div>
+  <div id="hud">
+    Distancia: <b id="dist">0</b> | Velocidad: <b id="spd">1</b> | Record: <b id="best">0</b><br>
+    Skin: <b id="skinName">Cian</b> <span style="opacity:.4;font-size:10px">v2.5.0</span>
+  </div>
+  <button id="pauseBtn">PAUSA</button>
+  <div id="overlay">
+    <div id="menuContent">
+      <div style="font-size:24px;margin-bottom:10px"><b>MOTO RUNNER LOCO</b></div>
+      <div style="margin-bottom:15px">CLICK / TAP para SALTAR<br>Desliza ARRIBA/ABAJO para carril<br>Doble Click para cambiar SKIN</div>
+      <div class="btn" id="startBtn">INICIAR</div>
+    </div>
+  </div>
   <canvas id="game"></canvas>
+
   <script>
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const overlay = document.getElementById('overlay');
+  const menuContent = document.getElementById('menuContent');
   const startBtn = document.getElementById('startBtn');
+  const pauseBtn = document.getElementById('pauseBtn');
   const distEl = document.getElementById('dist');
   const spdEl = document.getElementById('spd');
   const bestEl = document.getElementById('best');
+  const skinNameEl = document.getElementById('skinName');
 
   let W,H;
   function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
   window.addEventListener('resize', resize); resize();
 
   let running=false, paused=false;
-  let speed=4, distance=0, best=+localStorage.getItem('moto_best')||0;
-  let player={x:120,y:0,w:50,h:30,vy:0,onGround:true, lane:0};
-  let obstacles=[];
-  let lastSpawn=0;
+  let speed=7, baseSpeed=7, distance=0, best=+localStorage.getItem('moto_best')||0;
+  let skinIdx=+localStorage.getItem('moto_skin')||0;
+  const skins = [
+    {n:'Cian', c:'#0ff'}, {n:'Neon', c:'#1f5'}, {n:'Fuego', c:'#f50'}, {n:'Vampiro', c:'#f05'}, {n:'Oro', c:'#fb0'}
+  ];
+
+  let player={x:100,y:0,w:55,h:32,vy:0,onGround:true, lane:0};
+  let obstacles=[], powerups=[], bullets=[];
+  let lastSpawn=0, lastPower=0, boostTimer=0, shootTimer=0, rapidFire=0;
 
   function reset(){
-    speed=4; distance=0; obstacles=[]; player.y=H-120; player.vy=0; player.onGround=true; player.lane=0;
+    speed=baseSpeed=7; distance=0; obstacles=[]; powerups=[]; bullets=[];
+    player.y=H-120; player.vy=0; player.onGround=true; player.lane=0;
+    boostTimer=0; rapidFire=0; shootTimer=0;
+    pauseBtn.style.display='block';
   }
 
   function spawnObstacle(){
-    const type=Math.random()<0.5?'block':'barrel';
-    const lane=Math.random()<0.5?-1:1; // top/bottom lane
-    const y = lane===-1? H-200 : H-120;
-    obstacles.push({x:W+50,y,w:40,h:40,type});
+    const lane=Math.random()<0.5?-1:1;
+    const y = lane===-1? H-210 : H-130;
+    obstacles.push({x:W+60, y, w:45, h:45, color:'#f44'});
   }
 
-  function jump(){ if(player.onGround){ player.vy=-14; player.onGround=false; } }
-  function dodge(dir){ // up/down
-    player.lane = Math.max(-1, Math.min(1, player.lane+dir));
+  function spawnPower(){
+    const lane=Math.random()<0.5?-1:1;
+    const y = lane===-1? H-210 : H-130;
+    const type=Math.random()<0.5?'boost':'gun';
+    powerups.push({x:W+60, y, w:35, h:35, type});
   }
+
+  function jump(){ if(player.onGround){ player.vy=-16; player.onGround=false; } }
+  function dodge(dir){ player.lane = Math.max(-1, Math.min(1, player.lane+dir)); }
 
   function update(dt){
-    distance += speed*dt*10; // meters
-    if(distance%500<5) speed+=0.005; // increase slowly
+    distance += speed*dt*20;
+    baseSpeed += 0.05*dt; 
+    let targetSpeed = baseSpeed + (boostTimer>0? 6 : 0);
+    speed = targetSpeed;
 
-    // gravity
-    player.vy += 0.8; player.y += player.vy; 
-    const ground = H-120 + (player.lane===-1?-40:0);
-    if(player.y>=ground){ player.y=ground; player.vy=0; player.onGround=true; }
-
-    // spawn
-    lastSpawn += dt;
-    if(lastSpawn>1.2){ spawnObstacle(); lastSpawn=0; }
-
-    // move obstacles
-    for(let i=obstacles.length-1;i>=0;i--){
-      obstacles[i].x -= speed*dt*60;
-      if(obstacles[i].x<-60) obstacles.splice(i,1);
+    if(boostTimer>0) boostTimer-=dt;
+    if(rapidFire>0){
+        rapidFire-=dt;
+        shootTimer-=dt;
+        if(shootTimer<=0){
+            bullets.push({x:player.x+player.w, y:player.y+player.h/2-3, w:15, h:6});
+            shootTimer=0.1;
+        }
     }
 
-    // collision
+    // gravity
+    player.vy += 1.0; player.y += player.vy;
+    const groundY = H-130 + (player.lane===-1?-60:0);
+    if(player.y>=groundY){ player.y=groundY; player.vy=0; player.onGround=true; }
+
+    // spawning
+    lastSpawn += dt;
+    if(lastSpawn > (1.0 - Math.min(0.5, speed/40))){ spawnObstacle(); lastSpawn=0; }
+    lastPower += dt;
+    if(lastPower > 4.0){ spawnPower(); lastPower=0; }
+
+    // move entities
+    obstacles.forEach(o=>o.x -= speed*dt*70);
+    powerups.forEach(p=>p.x -= speed*dt*70);
+    bullets.forEach(b=>b.x += speed*dt*150);
+
+    obstacles = obstacles.filter(o=>o.x>-100);
+    powerups = powerups.filter(p=>p.x>-100);
+    bullets = bullets.filter(b=>b.x<W+100);
+
+    // Bullet collisions
+    for(let i=obstacles.length-1;i>=0;i--){
+        const o=obstacles[i];
+        for(let j=bullets.length-1;j>=0;j--){
+            const b=bullets[j];
+            if(b.x < o.x+o.w && b.x+b.w > o.x && b.y < o.y+o.h && b.y+b.h > o.y){
+                obstacles.splice(i,1); bullets.splice(j,1);
+                break;
+            }
+        }
+    }
+
+    // Player collision: obstacles
     for(const o of obstacles){
-      if(player.x < o.x+o.w && player.x+player.w > o.x && player.y < o.y+o.h && player.y+player.h > o.y){
-        running=false; overlay.style.display='flex';
-        if(distance>best){ best=Math.floor(distance); localStorage.setItem('moto_best', best); }
-        overlay.innerHTML = `<div><div><b>Game Over</b></div><div>Distancia: ${Math.floor(distance)}</div><div class='btn' id='restartBtn'>Reiniciar</div></div>`;
-        document.getElementById('restartBtn').onclick = ()=>{overlay.style.display='none'; reset(); running=true;};
-        break;
-      }
+        if(player.x+5 < o.x+o.w && player.x+player.w-5 > o.x && player.y+5 < o.y+o.h && player.y+player.h-5 > o.y){
+            gameOver(); break;
+        }
+    }
+
+    // Player collision: powerups
+    for(let i=powerups.length-1;i>=0;i--){
+        const p=powerups[i];
+        if(player.x < p.x+p.w && player.x+player.w > p.x && player.y < p.y+p.h && player.y+player.h > p.y){
+            if(p.type==='boost') boostTimer=4;
+            else { rapidFire=4; shootTimer=0; }
+            powerups.splice(i,1);
+        }
+    }
+  }
+
+  function gameOver(){
+    running=false;
+    pauseBtn.style.display='none';
+    if(distance>best){ best=Math.floor(distance); localStorage.setItem('moto_best', best); }
+    overlay.style.display='flex';
+    menuContent.innerHTML = `
+      <div style="font-size:24px;margin-bottom:10px"><b>GAME OVER</b></div>
+      <div style="font-size:18px;margin-bottom:15px">Distancia: ${Math.floor(distance)}m</div>
+      <div class="btn" onclick="location.reload()">REINICIAR</div>
+    `;
+  }
+
+  function togglePause(){
+    if(!running) return;
+    paused = !paused;
+    if(paused){
+        overlay.style.display='flex';
+        menuContent.innerHTML = `
+            <div style="font-size:24px;margin-bottom:10px"><b>PAUSA</b></div>
+            <div class="btn" id="resumeBtn">CONTINUAR</div>
+        `;
+        document.getElementById('resumeBtn').onclick = togglePause;
+    } else {
+        overlay.style.display='none';
     }
   }
 
   function draw(){
-    ctx.fillStyle='#111'; ctx.fillRect(0,0,W,H);
-    // road
-    ctx.fillStyle='#222'; ctx.fillRect(0,H-180,W,120);
-    ctx.strokeStyle='#444'; ctx.setLineDash([10,10]); ctx.beginPath(); ctx.moveTo(0,H-150); ctx.lineTo(W,H-150); ctx.stroke(); ctx.setLineDash([]);
+    ctx.clearRect(0,0,W,H);
+    // Road
+    ctx.fillStyle='#1a1c23'; ctx.fillRect(0,H-220,W,160);
+    ctx.strokeStyle='#333'; ctx.setLineDash([20,20]);
+    ctx.beginPath(); ctx.moveTo(0,H-140); ctx.lineTo(W,H-140); ctx.stroke(); ctx.setLineDash([]);
 
-    // player
-    ctx.fillStyle='#0ff'; ctx.fillRect(player.x,player.y,player.w,player.h);
+    // Speed lines (frenetic)
+    ctx.fillStyle='rgba(255,255,255,0.15)';
+    for(let i=0; i<10; i++){
+        let lx = (Date.now()*(speed/5) + i*200) % (W+200) - 200;
+        ctx.fillRect(lx, H-220 + i*16, 50, 2);
+    }
 
-    // obstacles
-    ctx.fillStyle='#f55';
-    obstacles.forEach(o=>ctx.fillRect(o.x,o.y,o.w,o.h));
+    // Player
+    ctx.fillStyle=skins[skinIdx].c;
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+    if(boostTimer>0){ // Boost effect
+        ctx.strokeStyle='#fff'; ctx.lineWidth=3;
+        ctx.strokeRect(player.x-2, player.y-2, player.w+4, player.h+4);
+    }
+
+    // Obstacles
+    obstacles.forEach(o=>{ ctx.fillStyle=o.color; ctx.fillRect(o.x,o.y,o.w,o.h); });
+
+    // Powerups (Magic boxes)
+    powerups.forEach(p=>{
+        ctx.fillStyle=p.type==='boost'?'#ff0':'#0af';
+        ctx.fillRect(p.x,p.y,p.w,p.h);
+        ctx.strokeStyle='#fff'; ctx.strokeRect(p.x,p.y,p.w,p.h);
+    });
+
+    // Bullets
+    ctx.fillStyle='#fff';
+    bullets.forEach(b=>ctx.fillRect(b.x,b.y,b.w,b.h));
 
     distEl.textContent = Math.floor(distance);
     spdEl.textContent = speed.toFixed(1);
     bestEl.textContent = best;
+    skinNameEl.textContent = skins[skinIdx].n;
   }
 
-  let last=performance.now();
+  let lastT=performance.now();
   function loop(t){
-    const dt=(t-last)/1000; last=t;
-    if(running){ update(dt); }
+    let dt=(t-lastT)/1000; lastT=t;
+    if(dt>0.1) dt=0.1;
+    if(running && !paused) update(dt);
     draw(); requestAnimationFrame(loop);
   }
   requestAnimationFrame(loop);
 
-  // controls
-  document.addEventListener('keydown', e=>{
-    if(e.code==='Space') jump();
-    if(e.code==='ArrowUp') dodge(-1);
-    if(e.code==='ArrowDown') dodge(1);
+  // Controls
+  canvas.addEventListener('click', ()=>{ if(running && !paused) jump(); });
+  canvas.addEventListener('dblclick', ()=>{
+      skinIdx = (skinIdx+1)%skins.length;
+      localStorage.setItem('moto_skin', skinIdx);
   });
-  canvas.addEventListener('click', jump);
+  
   let touchY=null;
-  canvas.addEventListener('touchstart', e=>{ touchY=e.touches[0].clientY; jump(); }, {passive:true});
-  canvas.addEventListener('touchmove', e=>{
-    if(touchY===null) return;
-    const dy=e.touches[0].clientY-touchY;
-    if(dy>40){ dodge(1); touchY=e.touches[0].clientY; }
-    if(dy<-40){ dodge(-1); touchY=e.touches[0].clientY; }
+  canvas.addEventListener('touchstart', e=>{
+      if(!running || paused) return;
+      touchY=e.touches[0].clientY;
+      jump();
   }, {passive:true});
-  canvas.addEventListener('touchend', ()=>{ touchY=null; });
+  
+  canvas.addEventListener('touchmove', e=>{
+      if(touchY===null) return;
+      let dy=e.touches[0].clientY - touchY;
+      if(dy > 50){ dodge(1); touchY=null; }
+      else if(dy < -50){ dodge(-1); touchY=null; }
+  }, {passive:true});
 
-  function start(){ overlay.style.display='none'; reset(); running=true; }
-  startBtn.onclick=start; overlay.onclick=start;
+  window.addEventListener('keydown', e=>{
+      if(e.code==='KeyP' || e.code==='Escape') togglePause();
+  });
+
+  startBtn.onclick = ()=>{ overlay.style.display='none'; reset(); running=true; };
+  pauseBtn.onclick = togglePause;
   </script>
 </body>
 </html>
