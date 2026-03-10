@@ -11,6 +11,7 @@
     #hud b { color:#7ef; }
     #canvas { width:100%; height:100%; display:block; position:fixed; inset:0; z-index:1; }
     #overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; background:rgba(0,0,0,.6); z-index:10; font:16px system-ui; text-align:center; padding:20px; pointer-events:auto; }
+    #overlay * { pointer-events:auto; }
     .btn { background:#1f5; color:#000; padding:10px 14px; border-radius:10px; display:inline-block; margin-top:10px; font-weight:700; cursor:pointer; user-select:none; -webkit-user-select:none; touch-action:manipulation; }
   </style>
 </head>
@@ -18,7 +19,7 @@
   <div id="hud">
     <div class="row">Vida: <b id="hp">100</b> | Daño: <b id="dmg">10</b> | Nivel: <b id="lvl">1</b> | Horda: <b id="wave">1</b></div>
     <div class="row">Arma: <b id="weapon">1</b> | Enemigos: <b id="enemies">0</b> | Kills: <b id="kills">0</b></div>
-    <div style="opacity:0.4; font-size:10px; margin-top:4px">v1.0.5</div>
+    <div style="opacity:0.4; font-size:10px; margin-top:4px">v1.0.6</div>
   </div>
   <div id="overlay">
     <div>
@@ -48,6 +49,7 @@
   const projectiles = [];
 
   let running = false;
+  let paused = false;
   let keys = {};
   let pointerLocked = false;
 
@@ -62,6 +64,7 @@
   let nextWaveAt = 10;
   let spawnCooldown = 0;
   let arenaSize = 40;
+  let lastSave = 0;
 
   // Setup
   function init(){
@@ -99,11 +102,14 @@
     onResize(); // Forzar resize inicial
 
     window.addEventListener('resize', onResize);
-    document.addEventListener('keydown', e=>keys[e.code]=true);
+    document.addEventListener('keydown', e=>{
+      keys[e.code]=true;
+      if(e.code === 'Escape') togglePause();
+    });
     document.addEventListener('keyup', e=>keys[e.code]=false);
 
     // Mouse/touch
-    canvas.addEventListener('click', () => { if(!running) return; attack(); });
+    canvas.addEventListener('click', () => { if(!running || paused) return; attack(); });
 
     // Grid helper para referencia visual
     const grid = new THREE.GridHelper(arenaSize*2, 20, 0x00ff00, 0x333333);
@@ -163,6 +169,40 @@
     killsEl.textContent = kills;
   }
 
+  function saveProgress(){
+    const data = {hp, maxHp, dmg, lvl, wave, kills, weapon, nextWaveAt};
+    localStorage.setItem('horde3d_save', JSON.stringify(data));
+    lastSave = performance.now();
+  }
+
+  function loadProgress(){
+    const raw = localStorage.getItem('horde3d_save');
+    if(!raw) return;
+    try {
+      const d = JSON.parse(raw);
+      hp = d.hp ?? hp;
+      maxHp = d.maxHp ?? maxHp;
+      dmg = d.dmg ?? dmg;
+      lvl = d.lvl ?? lvl;
+      wave = d.wave ?? wave;
+      kills = d.kills ?? kills;
+      weapon = d.weapon ?? weapon;
+      nextWaveAt = d.nextWaveAt ?? nextWaveAt;
+    } catch(e){}
+  }
+
+  function togglePause(){
+    if(!running) return;
+    paused = !paused;
+    if(paused){
+      overlay.style.display = 'flex';
+      overlay.innerHTML = `<div><div><b>Pausado</b></div><div>Kills: ${kills}</div><div class='btn' id='resumeBtn'>Continuar</div></div>`;
+      document.getElementById('resumeBtn').addEventListener('click', ()=>{overlay.style.display='none'; paused=false;});
+    } else {
+      overlay.style.display = 'none';
+    }
+  }
+
   function upgrade(){
     lvl++;
     // Every level: scale stats
@@ -181,6 +221,7 @@
   function animate(){
     requestAnimationFrame(animate);
     if(!running) return renderer.render(scene,camera);
+    if(paused){ renderer.render(scene,camera); return; }
 
     const dt = clock.getDelta();
 
@@ -253,6 +294,7 @@
     }
 
     updateHUD();
+    if(performance.now() - lastSave > 3000) saveProgress();
     renderer.render(scene,camera);
   }
 
@@ -263,7 +305,10 @@
   }
   startBtn.addEventListener('click', startGame);
   startBtn.addEventListener('touchstart', (e)=>{ e.preventDefault(); startGame(); }, {passive:false});
+  overlay.addEventListener('click', startGame);
+  overlay.addEventListener('touchstart', (e)=>{ e.preventDefault(); startGame(); }, {passive:false});
 
+  loadProgress();
   init();
   </script>
 </body>
