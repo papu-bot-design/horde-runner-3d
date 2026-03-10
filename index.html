@@ -18,7 +18,7 @@
   <div id="hud">
     <div class="row">Vida: <b id="hp">100</b> | Daño: <b id="dmg">10</b> | Nivel: <b id="lvl">1</b> | Horda: <b id="wave">1</b></div>
     <div class="row">Arma: <b id="weapon">1</b> | Enemigos: <b id="enemies">0</b> | Kills: <b id="kills">0</b></div>
-    <div style="opacity:0.4; font-size:10px; margin-top:4px">v1.0.2</div>
+    <div style="opacity:0.4; font-size:10px; margin-top:4px">v1.0.3</div>
   </div>
   <div id="overlay">
     <div>
@@ -66,33 +66,37 @@
   // Setup
   function init(){
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0b0d12); // Asegurar color de fondo
-    scene.fog = new THREE.Fog(0x0b0d12, 10, 100);
-
+    scene.background = new THREE.Color(0x1a1a2e); // Fondo azul oscuro/gris para contraste
+    
     camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
     renderer = new THREE.WebGLRenderer({canvas, antialias:true});
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
 
-    const light = new THREE.DirectionalLight(0xffffff, 2.0); // Más intensidad
-    light.position.set(10,50,10);
+    const light = new THREE.DirectionalLight(0xffffff, 2.5);
+    light.position.set(20,50,20);
     scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.8)); // Luz ambiental fuerte
+    scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
 
-    // Ground
-    const g = new THREE.PlaneGeometry(arenaSize*2, arenaSize*2, 10, 10);
-    const m = new THREE.MeshStandardMaterial({color:0x444444}); // Gris más claro
+    // Ground - Más brillante para ver si aparece
+    const g = new THREE.PlaneGeometry(200, 200);
+    const m = new THREE.MeshStandardMaterial({color:0x333333, side: THREE.DoubleSide});
     ground = new THREE.Mesh(g,m);
     ground.rotation.x = -Math.PI/2;
     scene.add(ground);
 
-    // Player
-    const pm = new THREE.MeshStandardMaterial({color:0x00aaff, emissive: 0x002244}); // Azul brillante
-    player = new THREE.Mesh(new THREE.CapsuleGeometry(0.8, 1.2, 4, 8), pm);
-    player.position.set(0,1.2,0);
+    // Grid helper rojo para que sea imposible no verlo
+    const grid = new THREE.GridHelper(200, 40, 0xff0000, 0x444444);
+    scene.add(grid);
+
+    // Player - Usar MeshBasic para descartar problemas de luz
+    const pm = new THREE.MeshBasicMaterial({color:0x00ffff});
+    player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), pm);
+    player.position.set(0,1,0);
     scene.add(player);
 
     clock = new THREE.Clock();
+    onResize(); // Forzar resize inicial
 
     window.addEventListener('resize', onResize);
     document.addEventListener('keydown', e=>keys[e.code]=true);
