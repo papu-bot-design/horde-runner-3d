@@ -3,308 +3,131 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
-  <title>Horde Runner 3D</title>
+  <title>Moto Runner 2D</title>
   <style>
-    html,body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#0b0d12; }
-    #hud { position:fixed; top:10px; left:10px; color:#fff; font:14px/1.3 system-ui,Segoe UI,Roboto; z-index:2; }
-    #hud .row { margin-bottom:6px; }
-    #hud b { color:#7ef; }
-    #canvas { width:100%; height:100%; display:block; position:fixed; inset:0; z-index:1; }
-    #overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; background:rgba(0,0,0,.6); z-index:10; font:16px system-ui; text-align:center; padding:20px; pointer-events:auto; }
-    #overlay * { pointer-events:auto; }
-    .btn { background:#1f5; color:#000; padding:10px 14px; border-radius:10px; display:inline-block; margin-top:10px; font-weight:700; cursor:pointer; user-select:none; -webkit-user-select:none; touch-action:manipulation; }
+    html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#111;}
+    #hud{position:fixed;top:10px;left:10px;color:#fff;font:14px system-ui;z-index:2}
+    #hud b{color:#7ef}
+    #overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.6);color:#fff;font:16px system-ui;z-index:3;text-align:center}
+    .btn{background:#1f5;color:#000;padding:10px 14px;border-radius:10px;font-weight:700;cursor:pointer;user-select:none}
+    canvas{width:100%;height:100%;display:block}
   </style>
 </head>
 <body>
-  <div id="hud">
-    <div class="row">Vida: <b id="hp">100</b> | Daño: <b id="dmg">10</b> | Nivel: <b id="lvl">1</b> | Horda: <b id="wave">1</b></div>
-    <div class="row">Arma: <b id="weapon">1</b> | Enemigos: <b id="enemies">0</b> | Kills: <b id="kills">0</b></div>
-    <div style="opacity:0.4; font-size:10px; margin-top:4px">v1.0.7</div>
-  </div>
-  <div id="overlay">
-    <div>
-      <div><b>Horde Runner 3D</b></div>
-      <div>WASD para mover · Mouse/Touch para mirar · Click/Tap para atacar</div>
-      <button class="btn" id="startBtn">Iniciar</button>
-    </div>
-  </div>
-  <canvas id="canvas"></canvas>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.min.js"></script>
+  <div id="hud">Distancia: <b id="dist">0</b> | Velocidad: <b id="spd">1</b> | Record: <b id="best">0</b> <span style="opacity:.4;font-size:10px">v2.0.0</span></div>
+  <div id="overlay"><div><div><b>Moto Runner 2D</b></div><div>Espacio / Tap para saltar · Deslizá para esquivar</div><div class="btn" id="startBtn">Iniciar</div></div></div>
+  <canvas id="game"></canvas>
   <script>
-  const canvas = document.getElementById('canvas');
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
   const overlay = document.getElementById('overlay');
   const startBtn = document.getElementById('startBtn');
+  const distEl = document.getElementById('dist');
+  const spdEl = document.getElementById('spd');
+  const bestEl = document.getElementById('best');
 
-  const hpEl = document.getElementById('hp');
-  const dmgEl = document.getElementById('dmg');
-  const lvlEl = document.getElementById('lvl');
-  const waveEl = document.getElementById('wave');
-  const weaponEl = document.getElementById('weapon');
-  const enemiesEl = document.getElementById('enemies');
-  const killsEl = document.getElementById('kills');
+  let W,H;
+  function resize(){ W=canvas.width=window.innerWidth; H=canvas.height=window.innerHeight; }
+  window.addEventListener('resize', resize); resize();
 
-  let scene, camera, renderer, clock;
-  let player, ground;
-  const enemies = [];
-  const projectiles = [];
+  let running=false, paused=false;
+  let speed=4, distance=0, best=+localStorage.getItem('moto_best')||0;
+  let player={x:120,y:0,w:50,h:30,vy:0,onGround:true, lane:0};
+  let obstacles=[];
+  let lastSpawn=0;
 
-  let running = false;
-  let paused = false;
-  let keys = {};
-  let pointerLocked = false;
-
-  // Game state
-  let hp = 100;
-  let maxHp = 100;
-  let dmg = 10;
-  let lvl = 1;
-  let wave = 1;
-  let kills = 0;
-  let weapon = 1;
-  let nextWaveAt = 10;
-  let spawnCooldown = 0;
-  let arenaSize = 40;
-  let lastSave = 0;
-
-  // Setup
-  function init(){
-    scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1a1a2e); // Fondo azul oscuro/gris para contraste
-    
-    camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-    renderer = new THREE.WebGLRenderer({canvas, antialias:true});
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
-
-    const light = new THREE.DirectionalLight(0xffffff, 2.5);
-    light.position.set(20,50,20);
-    scene.add(light);
-    scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
-
-    // Ground - Más brillante para ver si aparece
-    const g = new THREE.PlaneGeometry(200, 200);
-    const m = new THREE.MeshStandardMaterial({color:0x333333, side: THREE.DoubleSide});
-    ground = new THREE.Mesh(g,m);
-    ground.rotation.x = -Math.PI/2;
-    scene.add(ground);
-
-    // Grid helper rojo para que sea imposible no verlo
-    const grid = new THREE.GridHelper(200, 40, 0xff0000, 0x444444);
-    scene.add(grid);
-
-    // Player - Usar MeshBasic para descartar problemas de luz
-    const pm = new THREE.MeshBasicMaterial({color:0x00ffff});
-    player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), pm);
-    player.position.set(0,1,0);
-    scene.add(player);
-
-    clock = new THREE.Clock();
-    onResize(); // Forzar resize inicial
-
-    window.addEventListener('resize', onResize);
-    document.addEventListener('keydown', e=>{
-      keys[e.code]=true;
-      if(e.code === 'Escape') togglePause();
-    });
-    document.addEventListener('keyup', e=>keys[e.code]=false);
-
-    // Mouse/touch
-    canvas.addEventListener('click', () => { if(!running || paused) return; attack(); });
-
-    // Mobile look
-    let touchStart = null;
-    canvas.addEventListener('touchstart', e=>{
-      if(!running) return;
-      if(e.touches.length===1){ touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY}; }
-    });
-    canvas.addEventListener('touchmove', e=>{
-      if(!running || !touchStart) return;
-      const dx = (e.touches[0].clientX - touchStart.x) * 0.005;
-      player.rotation.y -= dx;
-      touchStart = {x:e.touches[0].clientX, y:e.touches[0].clientY};
-    });
-    canvas.addEventListener('touchend', ()=>{ touchStart = null; });
-
-    animate();
+  function reset(){
+    speed=4; distance=0; obstacles=[]; player.y=H-120; player.vy=0; player.onGround=true; player.lane=0;
   }
 
-  function onResize(){
-    camera.aspect = window.innerWidth/window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+  function spawnObstacle(){
+    const type=Math.random()<0.5?'block':'barrel';
+    const lane=Math.random()<0.5?-1:1; // top/bottom lane
+    const y = lane===-1? H-200 : H-120;
+    obstacles.push({x:W+50,y,w:40,h:40,type});
   }
 
-  function spawnEnemy(){
-    const em = new THREE.MeshStandardMaterial({color:0xff5555});
-    const e = new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 12), em);
-    const angle = Math.random()*Math.PI*2;
-    const r = arenaSize*0.9;
-    e.position.set(Math.cos(angle)*r, 0.8, Math.sin(angle)*r);
-    e.userData = {hp: 20 + wave*5, speed: 1.2 + wave*0.05};
-    scene.add(e);
-    enemies.push(e);
+  function jump(){ if(player.onGround){ player.vy=-14; player.onGround=false; } }
+  function dodge(dir){ // up/down
+    player.lane = Math.max(-1, Math.min(1, player.lane+dir));
   }
 
-  function attack(){
-    const p = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshStandardMaterial({color:0xffffaa}));
-    p.position.copy(player.position);
-    const dir = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion).normalize();
-    p.userData = {dir, life: 1.5};
-    scene.add(p);
-    projectiles.push(p);
-  }
+  function update(dt){
+    distance += speed*dt*10; // meters
+    if(distance%500<5) speed+=0.005; // increase slowly
 
-  function updateHUD(){
-    hpEl.textContent = Math.round(hp);
-    dmgEl.textContent = Math.round(dmg);
-    lvlEl.textContent = lvl;
-    waveEl.textContent = wave;
-    weaponEl.textContent = weapon;
-    enemiesEl.textContent = enemies.length;
-    killsEl.textContent = kills;
-  }
+    // gravity
+    player.vy += 0.8; player.y += player.vy; 
+    const ground = H-120 + (player.lane===-1?-40:0);
+    if(player.y>=ground){ player.y=ground; player.vy=0; player.onGround=true; }
 
-  function saveProgress(){
-    const data = {hp, maxHp, dmg, lvl, wave, kills, weapon, nextWaveAt};
-    localStorage.setItem('horde3d_save', JSON.stringify(data));
-    lastSave = performance.now();
-  }
+    // spawn
+    lastSpawn += dt;
+    if(lastSpawn>1.2){ spawnObstacle(); lastSpawn=0; }
 
-  function loadProgress(){
-    const raw = localStorage.getItem('horde3d_save');
-    if(!raw) return;
-    try {
-      const d = JSON.parse(raw);
-      hp = d.hp ?? hp;
-      maxHp = d.maxHp ?? maxHp;
-      dmg = d.dmg ?? dmg;
-      lvl = d.lvl ?? lvl;
-      wave = d.wave ?? wave;
-      kills = d.kills ?? kills;
-      weapon = d.weapon ?? weapon;
-      nextWaveAt = d.nextWaveAt ?? nextWaveAt;
-    } catch(e){}
-  }
-
-  function togglePause(){
-    if(!running) return;
-    paused = !paused;
-    if(paused){
-      overlay.style.display = 'flex';
-      overlay.innerHTML = `<div><div><b>Pausado</b></div><div>Kills: ${kills}</div><div class='btn' id='resumeBtn'>Continuar</div></div>`;
-      document.getElementById('resumeBtn').addEventListener('click', ()=>{overlay.style.display='none'; paused=false;});
-    } else {
-      overlay.style.display = 'none';
-    }
-  }
-
-  function upgrade(){
-    lvl++;
-    // Every level: scale stats
-    maxHp += 10;
-    hp = Math.min(hp + 10, maxHp);
-    dmg += 2;
-    if(lvl % 2 === 0 && weapon < 10) weapon++;
-  }
-
-  function nextWave(){
-    wave++;
-    nextWaveAt += 10 + wave*3;
-    upgrade();
-  }
-
-  function animate(){
-    requestAnimationFrame(animate);
-    if(!running) return renderer.render(scene,camera);
-    if(paused){ renderer.render(scene,camera); return; }
-
-    const dt = clock.getDelta();
-
-    // Movement
-    const speed = 6;
-    const forward = new THREE.Vector3(0,0,-1).applyQuaternion(player.quaternion).setY(0).normalize();
-    const right = new THREE.Vector3(1,0,0).applyQuaternion(player.quaternion).setY(0).normalize();
-    if(keys['KeyW']) player.position.addScaledVector(forward, speed*dt);
-    if(keys['KeyS']) player.position.addScaledVector(forward, -speed*dt);
-    if(keys['KeyA']) player.position.addScaledVector(right, -speed*dt);
-    if(keys['KeyD']) player.position.addScaledVector(right, speed*dt);
-
-    // Clamp arena
-    player.position.x = THREE.MathUtils.clamp(player.position.x, -arenaSize, arenaSize);
-    player.position.z = THREE.MathUtils.clamp(player.position.z, -arenaSize, arenaSize);
-
-    // Camera (3rd person)
-    const camOffset = new THREE.Vector3(0,6,10).applyQuaternion(player.quaternion);
-    camera.position.copy(player.position).add(camOffset);
-    camera.lookAt(player.position.x, player.position.y+1.5, player.position.z);
-
-    // Spawning
-    spawnCooldown -= dt;
-    const desired = Math.min(5 + wave*2, 80);
-    if(enemies.length < desired && spawnCooldown <= 0){
-      spawnEnemy();
-      spawnCooldown = Math.max(0.2, 1.5 - wave*0.03);
+    // move obstacles
+    for(let i=obstacles.length-1;i>=0;i--){
+      obstacles[i].x -= speed*dt*60;
+      if(obstacles[i].x<-60) obstacles.splice(i,1);
     }
 
-    // Enemy AI
-    for(let i=enemies.length-1;i>=0;i--){
-      const e = enemies[i];
-      const dir = player.position.clone().sub(e.position);
-      const dist = dir.length();
-      dir.normalize();
-      e.position.addScaledVector(dir, e.userData.speed*dt);
-
-      if(dist < 1.4){
-        hp -= 6 * dt;
-        if(hp <= 0){
-          running = false;
-          overlay.style.display = 'flex';
-          overlay.querySelector('div').innerHTML = `<div><b>Game Over</b></div><div>Kills: ${kills}</div><div class='btn' id='restartBtn'>Reiniciar</div>`;
-          document.getElementById('restartBtn').onclick = ()=>location.reload();
-        }
-      }
-
-      // Projectiles collision
-      for(let j=projectiles.length-1;j>=0;j--){
-        const p = projectiles[j];
-        if(p.position.distanceTo(e.position) < 1){
-          e.userData.hp -= dmg;
-          scene.remove(p); projectiles.splice(j,1);
-          if(e.userData.hp <= 0){
-            scene.remove(e); enemies.splice(i,1);
-            kills++;
-            if(kills >= nextWaveAt){ nextWave(); }
-          }
-          break;
-        }
+    // collision
+    for(const o of obstacles){
+      if(player.x < o.x+o.w && player.x+player.w > o.x && player.y < o.y+o.h && player.y+player.h > o.y){
+        running=false; overlay.style.display='flex';
+        if(distance>best){ best=Math.floor(distance); localStorage.setItem('moto_best', best); }
+        overlay.innerHTML = `<div><div><b>Game Over</b></div><div>Distancia: ${Math.floor(distance)}</div><div class='btn' id='restartBtn'>Reiniciar</div></div>`;
+        document.getElementById('restartBtn').onclick = ()=>{overlay.style.display='none'; reset(); running=true;};
+        break;
       }
     }
-
-    // Projectiles
-    for(let i=projectiles.length-1;i>=0;i--){
-      const p = projectiles[i];
-      p.position.addScaledVector(p.userData.dir, 18*dt);
-      p.userData.life -= dt;
-      if(p.userData.life <= 0){ scene.remove(p); projectiles.splice(i,1); }
-    }
-
-    updateHUD();
-    if(performance.now() - lastSave > 3000) saveProgress();
-    renderer.render(scene,camera);
   }
 
-  function startGame(){
-    overlay.style.display = 'none';
-    running = true;
-    clock.start();
-  }
-  startBtn.addEventListener('click', startGame);
-  startBtn.addEventListener('touchstart', (e)=>{ e.preventDefault(); startGame(); }, {passive:false});
-  overlay.addEventListener('click', startGame);
-  overlay.addEventListener('touchstart', (e)=>{ e.preventDefault(); startGame(); }, {passive:false});
+  function draw(){
+    ctx.fillStyle='#111'; ctx.fillRect(0,0,W,H);
+    // road
+    ctx.fillStyle='#222'; ctx.fillRect(0,H-180,W,120);
+    ctx.strokeStyle='#444'; ctx.setLineDash([10,10]); ctx.beginPath(); ctx.moveTo(0,H-150); ctx.lineTo(W,H-150); ctx.stroke(); ctx.setLineDash([]);
 
-  loadProgress();
-  init();
+    // player
+    ctx.fillStyle='#0ff'; ctx.fillRect(player.x,player.y,player.w,player.h);
+
+    // obstacles
+    ctx.fillStyle='#f55';
+    obstacles.forEach(o=>ctx.fillRect(o.x,o.y,o.w,o.h));
+
+    distEl.textContent = Math.floor(distance);
+    spdEl.textContent = speed.toFixed(1);
+    bestEl.textContent = best;
+  }
+
+  let last=performance.now();
+  function loop(t){
+    const dt=(t-last)/1000; last=t;
+    if(running){ update(dt); }
+    draw(); requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+
+  // controls
+  document.addEventListener('keydown', e=>{
+    if(e.code==='Space') jump();
+    if(e.code==='ArrowUp') dodge(-1);
+    if(e.code==='ArrowDown') dodge(1);
+  });
+  canvas.addEventListener('click', jump);
+  let touchY=null;
+  canvas.addEventListener('touchstart', e=>{ touchY=e.touches[0].clientY; jump(); }, {passive:true});
+  canvas.addEventListener('touchmove', e=>{
+    if(touchY===null) return;
+    const dy=e.touches[0].clientY-touchY;
+    if(dy>40){ dodge(1); touchY=e.touches[0].clientY; }
+    if(dy<-40){ dodge(-1); touchY=e.touches[0].clientY; }
+  }, {passive:true});
+  canvas.addEventListener('touchend', ()=>{ touchY=null; });
+
+  function start(){ overlay.style.display='none'; reset(); running=true; }
+  startBtn.onclick=start; overlay.onclick=start;
   </script>
 </body>
 </html>
